@@ -1,5 +1,6 @@
 import { parseGIF, decompressFrames } from 'gifuct-js';
 import GIF from 'gif.js';
+import type { Area } from 'react-easy-crop';
 
 export interface ProcessedImage {
     blob: Blob;
@@ -11,11 +12,11 @@ export interface ProcessedImage {
 const MAX_SIZE = 128 * 1024; // 128KB
 const TARGET_DIM = 128;
 
-export const processFile = async (file: File): Promise<Blob> => {
+export const processFile = async (file: File, crop?: Area): Promise<Blob> => {
     if (file.type === 'image/gif') {
-        return processGif(file);
+        return processGif(file, crop);
     } else {
-        return processStaticImage(file);
+        return processStaticImage(file, crop);
     }
 };
 
@@ -28,17 +29,26 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
     });
 };
 
-export const processStaticImage = async (file: File): Promise<Blob> => {
+export const processStaticImage = async (file: File, crop?: Area): Promise<Blob> => {
     const imageUrl = URL.createObjectURL(file);
     const img = await loadImage(imageUrl);
     URL.revokeObjectURL(imageUrl);
 
-    // Calculate scaling to FIT within 128x128
-    const scale = Math.min(TARGET_DIM / img.width, TARGET_DIM / img.height);
-    const width = Math.round(img.width * scale);
-    const height = Math.round(img.height * scale);
+    // Determine Logic: Crop vs Full
+    let srcX = 0, srcY = 0, srcW = img.width, srcH = img.height;
+    if (crop) {
+        srcX = crop.x;
+        srcY = crop.y;
+        srcW = crop.width;
+        srcH = crop.height;
+    }
 
-    // Create canvas EXACTLY the size of the resized image (no padding/bars)
+    // Calculate scaling to FIT the source content within 128x128
+    const scale = Math.min(TARGET_DIM / srcW, TARGET_DIM / srcH);
+    const width = Math.round(srcW * scale);
+    const height = Math.round(srcH * scale);
+
+    // Create canvas EXACTLY the size of the resized image
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -47,18 +57,20 @@ export const processStaticImage = async (file: File): Promise<Blob> => {
     if (!ctx) throw new Error('Could not get canvas context');
 
     ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(img, 0, 0, width, height);
+
+    // Draw only the cropped region
+    ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, width, height);
 
     // Compression loop
     let quality = 0.9;
     let blob: Blob | null = null;
-    let type = 'image/png'; // Default to PNG to preserve transparency
+    let type = 'image/png'; // Default to PNG
 
     // Try PNG first
     blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, type));
 
     if (blob && blob.size > MAX_SIZE) {
-        // Fallback to JPEG if PNG is too large (loses transparency)
+        // Fallback to JPEG if PNG is too large
         type = 'image/jpeg';
         while (quality > 0.1) {
             blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, type, quality));
@@ -75,7 +87,7 @@ export const processStaticImage = async (file: File): Promise<Blob> => {
     return blob;
 };
 
-export const processGif = async (file: File): Promise<Blob> => {
+export const processGif = async (file: File, crop?: Area): Promise<Blob> => {
     const arrayBuffer = await file.arrayBuffer();
     const frames = decompressFrames(parseGIF(arrayBuffer), true);
 
@@ -97,10 +109,19 @@ export const processGif = async (file: File): Promise<Blob> => {
     const gifWidth = rawGif.lsd.width;
     const gifHeight = rawGif.lsd.height;
 
-    // Scale factor - FIT within 128x128
-    const scale = Math.min(TARGET_DIM / gifWidth, TARGET_DIM / gifHeight);
-    const drawWidth = Math.round(gifWidth * scale);
-    const drawHeight = Math.round(gifHeight * scale);
+    // Determine Source Dimensions (Full vs Cropped)
+    let srcX = 0, srcY = 0, srcW = gifWidth, srcH = gifHeight;
+    if (crop) {
+        srcX = crop.x;
+        srcY = crop.y;
+        srcW = crop.width;
+        srcH = crop.height;
+    }
+
+    // Scale factor - FIT within 128x128 based on SOURCE dimensions
+    const scale = Math.min(TARGET_DIM / srcW, TARGET_DIM / srcH);
+    const drawWidth = Math.round(srcW * scale);
+    const drawHeight = Math.round(srcH * scale);
 
     const gif = new GIF({
         workers: 1,
@@ -120,7 +141,7 @@ export const processGif = async (file: File): Promise<Blob> => {
 
     if (!ctx || !tempCtx) throw new Error('Canvas context missing');
 
-    // Disable smoothing to avoid semi-transparent pixels
+    // Disable smoothing
     ctx.imageSmoothingEnabled = false;
 
     const compositionCanvas = document.createElement('canvas');
@@ -153,8 +174,10 @@ export const processGif = async (file: File): Promise<Blob> => {
             // Clear target canvas
             ctx.clearRect(0, 0, drawWidth, drawHeight);
 
-            // Draw composed frame at (0,0) - no centering needed as canvas fits image
-            ctx.drawImage(compositionCanvas, 0, 0, drawWidth, drawHeight);
+            // Draw composed frame
+            // Source: crop area (srcX, srcY, srcW, srcH)
+            // Dest: canvas area (0, 0, drawWidth, drawHeight)
+            ctx.drawImage(compositionCanvas, srcX, srcY, srcW, srcH, 0, 0, drawWidth, drawHeight);
 
             gif.addFrame(ctx, { copy: true, delay: frame.delay });
         }
