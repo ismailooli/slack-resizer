@@ -13,7 +13,7 @@ export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip 
     const [isLoading, setIsLoading] = useState(true);
     const [range, setRange] = useState({ start: 0, end: 0 });
     const [previewIndex, setPreviewIndex] = useState(0);
-    const [isPlaying, setIsPlaying] = useState(true);
+
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -58,7 +58,7 @@ export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip 
 
     // Preview Loop
     useEffect(() => {
-        if (!isPlaying || frames.length === 0) return;
+        if (frames.length === 0) return;
 
         let timeoutId: ReturnType<typeof setTimeout>;
         const animate = () => {
@@ -76,7 +76,7 @@ export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip 
 
         timeoutId = setTimeout(animate, 100);
         return () => clearTimeout(timeoutId);
-    }, [isPlaying, range, frames, previewIndex]);
+    }, [range, frames, previewIndex]);
 
     // Render Frame
     useEffect(() => {

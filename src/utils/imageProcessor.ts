@@ -34,6 +34,64 @@ export const getGifFrames = async (file: File): Promise<any[]> => {
     return decompressFrames(parseGIF(arrayBuffer), true);
 };
 
+export const extractFrameImage = async (file: File, frameIndex: number): Promise<string> => {
+    const frames = await getGifFrames(file);
+    const frame = frames[frameIndex];
+    if (!frame) throw new Error('Frame not found');
+
+    // Note: This extracts the RAW patch. For proper visuals we might need composition if it's transparent/partial.
+    // But for the START frame of a splice, we usually want the composed look.
+    // Composing is expensive (requires iterating 0 -> frameIndex).
+    // Let's try composing.
+
+    const arrayBuffer = await file.arrayBuffer();
+    const rawGif = parseGIF(arrayBuffer);
+    const width = rawGif.lsd.width;
+    const height = rawGif.lsd.height;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context missing');
+
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    if (!tempCtx) throw new Error('Temp canvas context missing');
+
+    // We need to iterate up to frameIndex to build state
+    let previousFrameData: ImageData | null = null;
+
+    for (let i = 0; i <= frameIndex; i++) {
+        const f = frames[i];
+
+        // Disposal 3 save
+        if (f.disposalType === 3) {
+            previousFrameData = ctx.getImageData(0, 0, width, height);
+        }
+
+        // Draw Frame
+        if (f.dims.width > 0 && f.dims.height > 0) {
+            const patchData = new ImageData(f.patch as any, f.dims.width, f.dims.height);
+            tempCanvas.width = f.dims.width;
+            tempCanvas.height = f.dims.height;
+            tempCtx.putImageData(patchData, 0, 0);
+            ctx.drawImage(tempCanvas, f.dims.left, f.dims.top);
+        }
+
+        // Handle Disposal (unless it's the last frame we just drew)
+        if (i < frameIndex) {
+            if (f.disposalType === 2) {
+                ctx.clearRect(f.dims.left, f.dims.top, f.dims.width, f.dims.height);
+            } else if (f.disposalType === 3 && previousFrameData) {
+                ctx.putImageData(previousFrameData, 0, 0);
+            }
+        }
+    }
+
+    return canvas.toDataURL();
+};
+
 export const processStaticImage = async (file: File, crop?: Area): Promise<Blob> => {
     const imageUrl = URL.createObjectURL(file);
     const img = await loadImage(imageUrl);

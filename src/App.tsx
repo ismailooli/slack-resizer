@@ -2,13 +2,15 @@ import { useState, useCallback } from 'react';
 import { UploadZone } from './components/UploadZone';
 import { PreviewSection } from './components/PreviewSection';
 import { CropSection } from './components/CropSection';
+
 import { GifTrimmer } from './components/GifTrimmer';
-import { processFile } from './utils/imageProcessor';
+import { processFile, extractFrameImage } from './utils/imageProcessor';
 import type { Area } from 'react-easy-crop';
 
 function App() {
   const [file, setFile] = useState<File | null>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [cropPreviewUrl, setCropPreviewUrl] = useState<string | null>(null); // New state for specific frame
   const [step, setStep] = useState<'upload' | 'trim' | 'crop' | 'preview'>('upload');
   const [resizedBlob, setResizedBlob] = useState<Blob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -20,6 +22,7 @@ function App() {
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     setFile(selectedFile);
     setFileUrl(URL.createObjectURL(selectedFile));
+    setCropPreviewUrl(null); // Reset
     setResizedBlob(null);
     setError(null);
     setTrimRange(undefined);
@@ -32,8 +35,19 @@ function App() {
     }
   }, []);
 
-  const handleTrimConfirm = (range: { start: number; end: number }) => {
+  const handleTrimConfirm = async (range: { start: number; end: number }) => {
     setTrimRange(range);
+
+    // Generate preview for the START frame so cropping is accurate
+    if (file) {
+      try {
+        const frameUrl = await extractFrameImage(file, range.start);
+        setCropPreviewUrl(frameUrl);
+      } catch (e) {
+        console.error("Failed to generate trim preview", e);
+      }
+    }
+
     setStep('crop');
   };
 
@@ -107,7 +121,7 @@ function App() {
                 <h2 className="text-lg font-bold text-gray-900">Crop & Frame</h2>
                 <p className="text-sm text-gray-500">Zoom and pan to frame your emoji.</p>
                 <CropSection
-                  imageUrl={fileUrl}
+                  imageUrl={cropPreviewUrl || fileUrl}
                   onConfirm={handleCropConfirm}
                   onSkip={handleCropSkip}
                 />
