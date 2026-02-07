@@ -12,9 +12,9 @@ export interface ProcessedImage {
 const MAX_SIZE = 128 * 1024; // 128KB
 const TARGET_DIM = 128;
 
-export const processFile = async (file: File, crop?: Area): Promise<Blob> => {
+export const processFile = async (file: File, crop?: Area, frameRange?: { start: number, end: number }): Promise<Blob> => {
     if (file.type === 'image/gif') {
-        return processGif(file, crop);
+        return processGif(file, crop, frameRange);
     } else {
         return processStaticImage(file, crop);
     }
@@ -27,6 +27,11 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
         img.onerror = reject;
         img.src = src;
     });
+};
+
+export const getGifFrames = async (file: File): Promise<any[]> => {
+    const arrayBuffer = await file.arrayBuffer();
+    return decompressFrames(parseGIF(arrayBuffer), true);
 };
 
 export const processStaticImage = async (file: File, crop?: Area): Promise<Blob> => {
@@ -87,14 +92,22 @@ export const processStaticImage = async (file: File, crop?: Area): Promise<Blob>
     return blob;
 };
 
-export const processGif = async (file: File, crop?: Area): Promise<Blob> => {
+export const processGif = async (file: File, crop?: Area, frameRange?: { start: number, end: number }): Promise<Blob> => {
     const arrayBuffer = await file.arrayBuffer();
-    const frames = decompressFrames(parseGIF(arrayBuffer), true);
+    const allFrames = decompressFrames(parseGIF(arrayBuffer), true);
 
-    // Frame reduction logic
+    // Apply Trim/Range Selection
+    let frames = allFrames;
+    if (frameRange) {
+        frames = allFrames.slice(frameRange.start, frameRange.end + 1);
+    }
+
+    if (frames.length === 0) throw new Error('No frames selected');
+
+    // Frame reduction logic (applied to the TRIMMED selection)
     const maxFrames = 20;
 
-    // Select indices
+    // Select indices within the trimmed set
     const indicesToKeep = new Set<number>();
     if (frames.length > maxFrames) {
         const frameStep = Math.floor(frames.length / maxFrames);
@@ -126,7 +139,7 @@ export const processGif = async (file: File, crop?: Area): Promise<Blob> => {
     const gif = new GIF({
         workers: 1,
         quality: 20,
-        width: drawWidth, // Canvas size matches image size
+        width: drawWidth,
         height: drawHeight,
         workerScript: '/gif.worker.js',
         transparent: null,
@@ -152,10 +165,23 @@ export const processGif = async (file: File, crop?: Area): Promise<Blob> => {
 
     let previousFrameData: ImageData | null = null;
 
-    for (let i = 0; i < frames.length; i++) {
-        const frame = frames[i];
+    // Iterate through ALL frames to build state, but only ADD trimmed frames
+    // Wait, trim logic slice method breaks disposal chain if we just start from middle.
+    // If we start from frame 10 (Disposal 3), we need state from frame 9.
+    // So we must iterate from 0 to end of range, but only draw/add frames within range.
 
-        // Save state for Disposal 3 (Restore to Previous)
+    // Correction: We iterate through full `allFrames` up to `frameRange.end`
+    const endIndex = frameRange ? frameRange.end : allFrames.length - 1;
+    const startIndex = frameRange ? frameRange.start : 0;
+
+    // We need to map the "trimmed index" to the "kept index"
+    // `indicesToKeep` refers to indices within the `frames` (sliced) array.
+    // So if trimmed is 10-20. The 0th frame of trimmed is index 10 of original.
+
+    for (let i = 0; i <= endIndex; i++) {
+        const frame = allFrames[i];
+
+        // Save state for Disposal 3
         if (frame.disposalType === 3) {
             previousFrameData = compositionCtx.getImageData(0, 0, gifWidth, gifHeight);
         }
@@ -170,24 +196,26 @@ export const processGif = async (file: File, crop?: Area): Promise<Blob> => {
             compositionCtx.drawImage(tempCanvas, frame.dims.left, frame.dims.top);
         }
 
-        if (indicesToKeep.has(i)) {
-            // Clear target canvas
-            ctx.clearRect(0, 0, drawWidth, drawHeight);
+        // Only add frame if it is within the range AND it is selected by reduction logic
+        if (i >= startIndex) {
+            // Local index within the trimmed slice
+            const localIndex = i - startIndex;
 
-            // Draw composed frame
-            // Source: crop area (srcX, srcY, srcW, srcH)
-            // Dest: canvas area (0, 0, drawWidth, drawHeight)
-            ctx.drawImage(compositionCanvas, srcX, srcY, srcW, srcH, 0, 0, drawWidth, drawHeight);
+            if (indicesToKeep.has(localIndex)) {
+                // Clear target canvas
+                ctx.clearRect(0, 0, drawWidth, drawHeight);
 
-            gif.addFrame(ctx, { copy: true, delay: frame.delay });
+                // Draw composed frame
+                ctx.drawImage(compositionCanvas, srcX, srcY, srcW, srcH, 0, 0, drawWidth, drawHeight);
+
+                gif.addFrame(ctx, { copy: true, delay: frame.delay });
+            }
         }
 
         // Handle Disposal
         if (frame.disposalType === 2) {
-            // Restore to background (transparent)
             compositionCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height);
         } else if (frame.disposalType === 3 && previousFrameData) {
-            // Restore to previous
             compositionCtx.putImageData(previousFrameData, 0, 0);
         }
     }
