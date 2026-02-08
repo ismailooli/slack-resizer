@@ -86,13 +86,13 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-gray-900 p-6 md:p-12 font-sans selection:bg-black selection:text-white">
+    <div className="min-h-screen bg-white text-gray-900 p-6 md:p-12 font-jakarta selection:bg-black selection:text-white">
       <div className="max-w-5xl mx-auto space-y-12">
         {/* Header */}
         <header className="space-y-2 border-b border-gray-100 pb-8">
-          <h1 className="text-2xl font-semibold tracking-tight">Slack Resizer</h1>
+          <h1 className="text-2xl font-syne tracking-tight">slack-resizer</h1>
           <p className="text-gray-500 text-sm">
-            Resize images for Slack emojis (under 128KB, square)
+            resize your images so that they fit the slack emoji size requirements
           </p>
         </header>
 
