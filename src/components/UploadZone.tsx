@@ -2,9 +2,10 @@ import React, { useState, useCallback, useRef } from 'react';
 
 interface UploadZoneProps {
     onFileSelect: (file: File) => void;
+    isProcessing?: boolean;
 }
 
-export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect }) => {
+export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect, isProcessing = false }) => {
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,11 +47,12 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect }) => {
                     ? 'border-gray-800 bg-gray-50'
                     : 'border-gray-200 hover:border-gray-400'
                 }
+        ${isProcessing ? 'opacity-50 pointer-events-none' : ''}
       `}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onDragOver={!isProcessing ? handleDragOver : undefined}
+            onDragLeave={!isProcessing ? handleDragLeave : undefined}
+            onDrop={!isProcessing ? handleDrop : undefined}
+            onClick={() => !isProcessing && fileInputRef.current?.click()}
         >
             <input
                 type="file"
@@ -58,6 +60,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelect }) => {
                 ref={fileInputRef}
                 accept="image/*"
                 onChange={handleFileInput}
+                disabled={isProcessing}
             />
 
             <div className="space-y-2">
