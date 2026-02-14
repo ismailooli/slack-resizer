@@ -9,15 +9,35 @@ export const getGifFrames = async (file: File): Promise<any[]> => {
     return decompressFrames(parseGIF(arrayBuffer), true);
 };
 
-export const extractFrameImage = async (file: File, frameIndex: number): Promise<string> => {
-    const frames = await getGifFrames(file);
-    const frame = frames[frameIndex];
-    if (!frame) throw new Error('Frame not found');
+export interface GifFramesAndInfo {
+    frames: any[];
+    width: number;
+    height: number;
+    bgRgb: [number, number, number] | null;
+}
 
+export const getGifFramesAndInfo = async (file: File): Promise<GifFramesAndInfo> => {
     const arrayBuffer = await file.arrayBuffer();
     const rawGif = parseGIF(arrayBuffer);
+    const frames = decompressFrames(rawGif, true);
     const width = rawGif.lsd.width;
     const height = rawGif.lsd.height;
+    const bgIndex = rawGif.lsd.backgroundColorIndex ?? 0;
+    const gct = rawGif.gct ?? [];
+    const bgRgb = (gct[bgIndex] as [number, number, number]) ?? null;
+    return { frames, width, height, bgRgb };
+};
+
+/** Composes frames 0..frameIndex into a single image; returns data URL. Keeps transparency (no background fill). */
+export const composeFrameToDataUrl = (
+    frames: any[],
+    frameIndex: number,
+    width: number,
+    height: number,
+    _bgRgb: [number, number, number] | null
+): string => {
+    const frame = frames[frameIndex];
+    if (!frame) throw new Error('Frame not found');
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -47,7 +67,7 @@ export const extractFrameImage = async (file: File, frameIndex: number): Promise
         }
 
         if (i < frameIndex) {
-            if (f.disposalType === 2) {
+            if (f.disposalType === 0 || f.disposalType === 2) {
                 ctx.clearRect(f.dims.left, f.dims.top, f.dims.width, f.dims.height);
             } else if (f.disposalType === 3 && previousFrameData) {
                 ctx.putImageData(previousFrameData, 0, 0);
@@ -56,6 +76,11 @@ export const extractFrameImage = async (file: File, frameIndex: number): Promise
     }
 
     return canvas.toDataURL();
+};
+
+export const extractFrameImage = async (file: File, frameIndex: number): Promise<string> => {
+    const { frames, width, height, bgRgb } = await getGifFramesAndInfo(file);
+    return composeFrameToDataUrl(frames, frameIndex, width, height, bgRgb);
 };
 
 export const processGif = async (file: File, crop?: Area, frameRange?: FrameRange): Promise<Blob> => {
@@ -72,9 +97,11 @@ export const processGif = async (file: File, crop?: Area, frameRange?: FrameRang
     const maxFrames = 20;
     const indicesToKeep = new Set<number>();
     if (frames.length > maxFrames) {
-        const frameStep = Math.floor(frames.length / maxFrames);
-        for (let i = 0; i < maxFrames; i++) {
-            indicesToKeep.add(i * frameStep);
+        indicesToKeep.add(0);
+        indicesToKeep.add(frames.length - 1);
+        const step = (frames.length - 1) / (maxFrames - 1);
+        for (let i = 1; i < maxFrames - 1; i++) {
+            indicesToKeep.add(Math.round(i * step));
         }
     } else {
         frames.forEach((_, i) => indicesToKeep.add(i));
@@ -98,7 +125,8 @@ export const processGif = async (file: File, crop?: Area, frameRange?: FrameRang
 
     const gif = new GIF({
         workers: 1,
-        quality: 20,
+        quality: 10,
+        dither: false,
         width: drawWidth,
         height: drawHeight,
         workerScript: '/gif.worker.js',
@@ -150,11 +178,12 @@ export const processGif = async (file: File, crop?: Area, frameRange?: FrameRang
             if (indicesToKeep.has(localIndex)) {
                 ctx.clearRect(0, 0, drawWidth, drawHeight);
                 ctx.drawImage(compositionCanvas, srcX, srcY, srcW, srcH, 0, 0, drawWidth, drawHeight);
-                gif.addFrame(ctx, { copy: true, delay: frame.delay });
+                const delayMs = Math.max(20, frame.delay || 100);
+                gif.addFrame(ctx, { copy: true, delay: delayMs });
             }
         }
 
-        if (frame.disposalType === 2) {
+        if (frame.disposalType === 0 || frame.disposalType === 2) {
             compositionCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height);
         } else if (frame.disposalType === 3 && previousFrameData) {
             compositionCtx.putImageData(previousFrameData, 0, 0);

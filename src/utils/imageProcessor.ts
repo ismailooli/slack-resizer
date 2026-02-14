@@ -1,8 +1,9 @@
 import type { Area } from 'react-easy-crop';
 import { processStaticImage } from './staticImageProcessor';
-import { processGif, getGifFrames, extractFrameImage } from './gifProcessor';
+import { processGif, getGifFrames, extractFrameImage, getGifFramesAndInfo, composeFrameToDataUrl } from './gifProcessor';
 
 export type { ProcessedImage, FrameRange } from './types';
+export type { GifFramesAndInfo } from './gifProcessor';
 
 export const processFile = async (
     file: File,
@@ -15,4 +16,4 @@ export const processFile = async (
     return processStaticImage(file, crop);
 };
 
-export { getGifFrames, extractFrameImage };
+export { getGifFrames, extractFrameImage, getGifFramesAndInfo, composeFrameToDataUrl };

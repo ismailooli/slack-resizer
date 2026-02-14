@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { getGifFrames } from '../utils/imageProcessor';
+import React, { useState, useEffect } from 'react';
+import { getGifFramesAndInfo, composeFrameToDataUrl } from '../utils/imageProcessor';
 
 interface GifTrimmerProps {
     file: File;
@@ -9,43 +9,31 @@ interface GifTrimmerProps {
 
 export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip }) => {
     const [frames, setFrames] = useState<any[]>([]);
+    const [gifWidth, setGifWidth] = useState(0);
+    const [gifHeight, setGifHeight] = useState(0);
+    const [bgRgb, setBgRgb] = useState<[number, number, number] | null>(null);
     const [thumbnails, setThumbnails] = useState<string[]>([]);
+    const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [range, setRange] = useState({ start: 0, end: 0 });
     const [previewIndex, setPreviewIndex] = useState(0);
 
-
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-
     useEffect(() => {
         const loadFrames = async () => {
             try {
-                const parsedFrames = await getGifFrames(file);
+                const { frames: parsedFrames, width, height, bgRgb: rgb } = await getGifFramesAndInfo(file);
                 setFrames(parsedFrames);
+                setGifWidth(width);
+                setGifHeight(height);
+                setBgRgb(rgb);
                 setRange({ start: 0, end: parsedFrames.length - 1 });
 
-                // Generate thumbnails
                 const step = Math.max(1, Math.floor(parsedFrames.length / 10));
                 const thumbs: string[] = [];
-
-                const generateThumb = async (frame: any) => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = frame.dims.width;
-                    canvas.height = frame.dims.height;
-                    const ctx = canvas.getContext('2d');
-                    if (!ctx) return '';
-                    const imgData = new ImageData(frame.patch, frame.dims.width, frame.dims.height);
-                    ctx.putImageData(imgData, 0, 0);
-                    return canvas.toDataURL();
-                };
-
                 for (let i = 0; i < parsedFrames.length; i += step) {
-                    if (parsedFrames[i].dims.width > 0 && parsedFrames[i].dims.height > 0) {
-                        thumbs.push(await generateThumb(parsedFrames[i]));
-                    }
+                    thumbs.push(composeFrameToDataUrl(parsedFrames, i, width, height, rgb));
                 }
                 setThumbnails(thumbs);
-
             } catch (error) {
                 console.error("Error parsing GIF", error);
                 onSkip();
@@ -56,15 +44,13 @@ export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip 
         loadFrames();
     }, [file, onSkip]);
 
-    // Preview Loop
     useEffect(() => {
-        if (frames.length === 0) return;
+        if (frames.length === 0 || gifWidth === 0 || gifHeight === 0) return;
 
         let timeoutId: ReturnType<typeof setTimeout>;
         const animate = () => {
             setPreviewIndex(prev => {
                 let next = prev + 1;
-                // Loop only within range
                 if (next > range.end) return range.start;
                 if (next < range.start) return range.start;
                 return next;
@@ -78,21 +64,15 @@ export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip 
         return () => clearTimeout(timeoutId);
     }, [range, frames, previewIndex]);
 
-    // Render Frame
     useEffect(() => {
-        if (frames.length === 0 || !canvasRef.current) return;
-        const ctx = canvasRef.current.getContext('2d');
-        if (!ctx) return;
-
-        const frame = frames[previewIndex];
-        if (!frame) return;
-
-        canvasRef.current.width = frame.dims.width;
-        canvasRef.current.height = frame.dims.height;
-        const imgData = new ImageData(frame.patch, frame.dims.width, frame.dims.height);
-        ctx.putImageData(imgData, 0, 0);
-
-    }, [previewIndex, frames]);
+        if (frames.length === 0 || gifWidth === 0 || gifHeight === 0) return;
+        try {
+            const url = composeFrameToDataUrl(frames, previewIndex, gifWidth, gifHeight, bgRgb);
+            setPreviewImageUrl(url);
+        } catch {
+            setPreviewImageUrl(null);
+        }
+    }, [frames, previewIndex, gifWidth, gifHeight, bgRgb]);
 
     const handleRangeChange = (type: 'start' | 'end', value: number) => {
         const val = Math.max(0, Math.min(value, frames.length - 1));
@@ -107,15 +87,22 @@ export const GifTrimmer: React.FC<GifTrimmerProps> = ({ file, onConfirm, onSkip 
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading frames...</div>;
 
     const totalFrames = frames.length;
-    // Calculate percentages for UI
-    const startPercent = (range.start / (totalFrames - 1)) * 100;
-    const endPercent = (range.end / (totalFrames - 1)) * 100;
+    const startPercent = totalFrames <= 1 ? 0 : (range.start / (totalFrames - 1)) * 100;
+    const endPercent = totalFrames <= 1 ? 100 : (range.end / (totalFrames - 1)) * 100;
 
     return (
         <div className="space-y-6">
-            {/* Preview Box */}
+            {/* Preview Box - composed frame so it matches the actual GIF at this moment */}
             <div className="bg-gray-100 rounded-lg p-4 flex justify-center items-center min-h-[200px] border border-gray-200">
-                <canvas ref={canvasRef} className="max-h-[200px] max-w-full object-contain bg-white shadow-sm" />
+                {previewImageUrl ? (
+                    <img
+                        src={previewImageUrl}
+                        alt="GIF frame preview"
+                        className="max-h-[200px] max-w-full object-contain bg-white shadow-sm"
+                    />
+                ) : (
+                    <div className="max-h-[200px] w-full flex items-center justify-center text-gray-400 text-sm">Loading preview...</div>
+                )}
             </div>
 
             {/* Timeline Area */}
