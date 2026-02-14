@@ -105,21 +105,21 @@ export const PreviewSection: React.FC<PreviewSectionProps> = ({
                                 <span className="font-bold text-[15px] text-[#1d1c1d]">User</span>
                                 <span className="text-xs text-[#616061]">10:42 AM</span>
                             </div>
-                            <div className="text-[15px] text-[#1d1c1d] leading-[22px] flex items-center gap-1">
-                                <span>Here is the new emoji</span>
+                            <div className="text-[15px] text-[#1d1c1d] leading-[22px] break-words">
+                                <span>Here is the new emoji </span>
                                 {isProcessing ? (
-                                    <div className="w-[22px] h-[22px] bg-gray-100 rounded animate-pulse" />
+                                    <div className="w-[22px] h-[22px] bg-gray-100 rounded animate-pulse inline-block align-text-bottom mx-0.5" />
                                 ) : previewUrl ? (
                                     <img
                                         src={previewUrl}
                                         alt="Emoji Preview"
-                                        className="w-[22px] h-[22px] object-contain inline-block align-bottom"
+                                        className="w-[22px] h-[22px] object-contain inline-block align-text-bottom mx-0.5"
                                         style={{ imageRendering: 'pixelated' }}
                                     />
                                 ) : (
-                                    <div className="w-[22px] h-[22px] bg-gray-100 rounded" />
+                                    <div className="w-[22px] h-[22px] bg-gray-100 rounded inline-block align-text-bottom mx-0.5" />
                                 )}
-                                <span>looks great!</span>
+                                <span> looks great!</span>
                             </div>
                         </div>
                     </div>
